@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "r67LNGd8PGnIwZaB+n6J5tb/0I+j3YyQW4Sm0VwlNhLTidp2IkKZL12PXf5oHl4tdka6RAGOSvK3eUjqYDsoOw==",
+  "success": true,
+  "projectFilePath": "D:\\self_projects\\c++\\PNetAnalyzer\\PNetAnalyzer\\PNetAnalyzer.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Kingsoft\\.nuget\\packages\\microsoft.diagnostics.tracing.traceevent\\3.1.1\\microsoft.diagnostics.tracing.traceevent.3.1.1.nupkg.sha512",
+    "C:\\Users\\Kingsoft\\.nuget\\packages\\system.runtime.compilerservices.unsafe\\5.0.0\\system.runtime.compilerservices.unsafe.5.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}
