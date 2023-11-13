@@ -6,6 +6,7 @@ using Microsoft.Diagnostics.Tracing.Session;
 using Microsoft.Diagnostics.Tracing.Parsers.Kernel;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace ETW {
     class Program
@@ -114,61 +115,27 @@ namespace ETW {
             public uint MinMss;
             public uint SpuriousRtoDetections;
         }
-        public struct TCP_ESTATS_DATA_ROD_v0
-        {
-            public ulong SegsOut;
-            public ulong SegsIn;
-            public ulong SoftErrors;
-            public ulong SndUna;
-            public ulong SndNxt;
-            public ulong SndMax;
-            public ulong ThruBytesAcked;
-            public ulong RcvNxt;
-            public ulong ThruBytesReceived;
-            public ulong RcvAckTotal;
-            public ulong RcvAckTotalPerFlow;
-            public ulong RcvBytesDuplicate;
-            public ulong RcvBytesOutOfOrder;
-            public ulong AoRetransmitted;
-            public ulong SndProbe;
-            public ulong RcvProbe;
-            public ulong SegsOutPerSec;
-            public ulong SegsInPerSec;
-            public ulong SoftErrorsPerSec;
-            public ulong SndUnaPerSec;
-            public ulong SndNxtPerSec;
-            public ulong SndMaxPerSec;
-            public ulong ThruBytesAckedPerSec;
-            public ulong RcvNxtPerSec;
-            public ulong ThruBytesReceivedPerSec;
-            public ulong RcvAckTotalPerSec;
-            public ulong RcvAckTotalPerFlowPerSec;
-            public ulong RcvBytesDuplicatePerSec;
-            public ulong RcvBytesOutOfOrderPerSec;
-            public ulong AoRetransmittedPerSec;
-            public ulong SndProbePerSec;
-            public ulong RcvProbePerSec;
-        }
 
         static string GetTcpConnectionEStats(string localAddr,string localPort,string remoteAddr,string remotePort)
         {
             MIB_TCPROW row = new MIB_TCPROW();
             row.State = MIB_TCP_STATE.MIB_TCP_STATE_ESTAB;
             
-            // row.dwLocalAddr = new byte[] { 10, 11, 146, 62 };
-            row.dwLocalAddr = BitConverter.GetBytes(IPAddress.Parse(localAddr).Address);
-
-            ushort port = 57664;
-            byte[] portBytes = BitConverter.GetBytes(port);
-            row.dwLocalPort = new byte[] { portBytes[1], portBytes[0], 0, 0 };
+            //本地地址
+            row.dwLocalAddr = IPAddress.Parse(localAddr).GetAddressBytes();
             
             
-            // row.dwRemoteAddr = new byte[] { 119, 23, 45, 236 };
-            row.dwRemoteAddr = BitConverter.GetBytes(IPAddress.Parse(remoteAddr).Address);
+            //本地端口
+            byte[] localPortBytes = BitConverter.GetBytes(int.Parse(localPort));
+            row.dwLocalPort = new byte[] { localPortBytes[1], localPortBytes[0], 0, 0 };
             
-            ushort port2 = 443;
-            byte[] portBytes2 = BitConverter.GetBytes(port2);
-            row.dwRemotePort = new byte[] { portBytes2[1], portBytes2[0], 0, 0 };
+            //远程地址
+            row.dwRemoteAddr = IPAddress.Parse(remoteAddr).GetAddressBytes();
+            
+            
+            //远程端口
+            byte[] remotePortBytes = BitConverter.GetBytes(int.Parse(remotePort));
+            row.dwRemotePort = new byte[] { remotePortBytes[1], remotePortBytes[0], 0, 0 };
 
             IntPtr pRw = IntPtr.Zero;
             IntPtr pRod = IntPtr.Zero;
@@ -186,7 +153,14 @@ namespace ETW {
                 // Console.WriteLine($"Remote port: {BitConverter.ToUInt16(row.dwRemotePort, 0)}");
                 if (retRod.SampleRtt != 4294967295)
                 {
-                    return retRod.SampleRtt.ToString();
+                    if (retRod.SampleRtt > 100000)
+                    {
+                        return "-";
+                    }
+                    else
+                    {
+                        return retRod.SampleRtt.ToString();
+                    }
                 }
                 else
                 {
@@ -201,9 +175,12 @@ namespace ETW {
             var recordTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"); //记录时间
             etwSession.Source.Kernel.TcpIpSend += data =>
             {
-                if (data.ProcessID == targetPid && data.sport == 49756)
+                if (data.ProcessID == targetPid)
                 {
+                    
                     var currentTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"); //当前时间
+                    // Console.WriteLine($"XXXXX名称: {data.ProcessName} , 本地地址: {data.saddr} , 本地端口: {data.sport} , 远程地址: {data.daddr}" +
+                    //                   $" , 远程端口: {data.dport} , 发送数据包大小: {data.size} , 时间: {currentTime}");
                     if (dict.Count == 0)
                     {
                         recordTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"); //记录时间
@@ -241,8 +218,8 @@ namespace ETW {
                             foreach (KeyValuePair<string, List<string>> entry in dict)
                             {
                                 Console.WriteLine($"名称: {entry.Value[0]} , 本地地址: {entry.Value[1]} , 本地端口: {entry.Key} , 远程地址: {entry.Value[2]}" +
-                                                  $" , 远程端口: {entry.Value[3]} , 发送数据包大小: {entry.Value[4]} ," +
-                                                  $" 延迟时间: {GetTcpConnectionEStats(entry.Value[1],entry.Key,entry.Value[2],entry.Value[3])}");
+                                                  $" , 远程端口: {entry.Value[3]} , 发送数据包大小: {entry.Value[4]} , 时间: {currentTime}" +
+                                                  $" 延迟时间: {GetTcpConnectionEStats(entry.Value[1],entry.Key,entry.Value[2],entry.Value[3])} ms");
                             }
                             recordTime = currentTime;
                             dict.Clear();
@@ -258,14 +235,82 @@ namespace ETW {
                     }
                 }
             };
-
+        }
+        
+        
+        private static void TcpIpRecv(TraceEventSession etwSession,int targetPid) {
+            Dictionary<string, List<string>> dict = new Dictionary<string, List<string>>();
+            var recordTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"); //记录时间
+            etwSession.Source.Kernel.TcpIpRecv += data =>
+            {
+                if (data.ProcessID == targetPid)
+                {
+                    
+                    var currentTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"); //当前时间
+                    // Console.WriteLine($"XXXXX名称: {data.ProcessName} , 本地地址: {data.saddr} , 本地端口: {data.sport} , 远程地址: {data.daddr}" +
+                    //                   $" , 远程端口: {data.dport} , 发送数据包大小: {data.size} , 时间: {currentTime}");
+                    if (dict.Count == 0)
+                    {
+                        recordTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"); //记录时间
+                        dict.Add(data.sport.ToString(),new List<string>
+                        {
+                            data.ProcessName.ToString(), //名称
+                            data.saddr.ToString(), //本地地址
+                            data.daddr.ToString(), //远程地址
+                            data.dport.ToString(), //远程端口
+                            data.size.ToString(), //发送数据包大小
+                        });
+                    }
+                    else
+                    {
+                        if (currentTime == recordTime)
+                        {
+                            if (!dict.ContainsKey(data.sport.ToString()))
+                            {
+                                dict.Add(data.sport.ToString(),new List<string>
+                                {
+                                    data.ProcessName.ToString(), //名称
+                                    data.saddr.ToString(), //本地地址
+                                    data.daddr.ToString(), //远程地址
+                                    data.dport.ToString(), //远程端口
+                                    data.size.ToString(), //发送数据包大小
+                                });
+                            }
+                            else
+                            {
+                                dict[data.sport.ToString()][4] = (int.Parse(dict[data.sport.ToString()][4]) + data.size).ToString();
+                            }
+                        }
+                        else
+                        {
+                            foreach (KeyValuePair<string, List<string>> entry in dict)
+                            {
+                                Console.WriteLine($"名称: {entry.Value[0]} , 本地地址: {entry.Value[1]} , 本地端口: {entry.Key} , 远程地址: {entry.Value[2]}" +
+                                                  $" , 远程端口: {entry.Value[3]} , 接收数据包大小: {entry.Value[4]} , 时间: {currentTime}" +
+                                                  $" 延迟时间: {GetTcpConnectionEStats(entry.Value[1],entry.Key,entry.Value[2],entry.Value[3])} ms");
+                            }
+                            recordTime = currentTime;
+                            dict.Clear();
+                            dict.Add(data.sport.ToString(),new List<string>
+                            {
+                                data.ProcessName.ToString(), //名称
+                                data.saddr.ToString(), //本地地址
+                                data.daddr.ToString(), //远程地址
+                                data.dport.ToString(), //远程端口
+                                data.size.ToString(), //发送数据包大小
+                            });
+                        }
+                    }
+                }
+            };
         }
         
         private static void Main(string[] args) {
             var etwSession = new TraceEventSession("TcpIpSession");
             etwSession.EnableKernelProvider(KernelTraceEventParser.Keywords.NetworkTCPIP);
-            var targetPid = 3196;
+            var targetPid = 8840;
             TcpIpSend(etwSession,targetPid);
+            TcpIpRecv(etwSession,targetPid);
             etwSession.Source.Process();
         }
         
